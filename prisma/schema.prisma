@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Papel {
+  SOLICITANTE
+  ATENDENTE
+}
+
+enum StatusChamado {
+  PROPOSTO     // IA gerou, aguardando revisão
+  CONFIRMADO
+  CORRIGIDO
+  REJEITADO
+}
+
+enum OrigemResumo {
+  IA
+  HUMANO
+}
+
+enum AcaoRevisao {
+  CONFIRMAR
+  CORRIGIR
+  REJEITAR
+}
+
+model Usuario {
+  id        String    @id @default(uuid())
+  nome      String
+  email     String    @unique
+  papel     Papel
+  criadoEm  DateTime  @default(now())
+  chamados  Chamado[]
+  revisoes  Revisao[]
+}
+
+model Chamado {
+  id             String         @id @default(uuid())
+  textoOriginal  String
+  status         StatusChamado  @default(PROPOSTO)
+  solicitanteId  String
+  solicitante    Usuario        @relation(fields: [solicitanteId], references: [id])
+  criadoEm       DateTime       @default(now())
+  atualizadoEm   DateTime       @updatedAt
+  resumos        Resumo[]
+  revisoes       Revisao[]
+  execucoes      ExecucaoIa[]
+
+  @@index([solicitanteId, criadoEm])
+}
+
+// Uma linha por versão: a primeira é a proposta da IA,
+// as seguintes são correções humanas.
+model Resumo {
+  id                 String        @id @default(uuid())
+  chamadoId          String
+  chamado            Chamado       @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
+  versao             Int
+  origem             OrigemResumo
+  titulo             String
+  texto              String
+  pontosImportantes  String[]
+  revisaoHumana      Boolean
+  criadoEm           DateTime      @default(now())
+
+  @@unique([chamadoId, versao])
+}
+
+model Revisao {
+  id         String       @id @default(uuid())
+  chamadoId  String
+  chamado    Chamado      @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
+  autorId    String
+  autor      Usuario      @relation(fields: [autorId], references: [id])
+  acao       AcaoRevisao
+  motivo     String?
+  criadoEm   DateTime     @default(now())
+}
+
+// Sem texto do chamado nem resposta bruta: só metadados operacionais.
+model ExecucaoIa {
+  id              String    @id @default(uuid())
+  chamadoId       String?
+  chamado         Chamado?  @relation(fields: [chamadoId], references: [id], onDelete: SetNull)
+  operacao        String    // "resumir", "classificar"
+  modelo          String
+  versaoPrompt    String
+  duracaoMs       Int
+  tokensEntrada   Int?
+  tokensSaida     Int?
+  validacaoOk     Boolean
+  categoriaErro   String?   // TIMEOUT, INDISPONIVEL, FORA_DO_CONTRATO...
+  etapaFalha      String?   // INFERENCIA, VALIDACAO, PERSISTENCIA
+  criadoEm        DateTime  @default(now())
+}
